@@ -1,0 +1,13 @@
+# Merge into the Prometheus scrape_configs list.
+# Metrics token is READ-ONLY and is different from linpush's admin API token.
+# Copy /etc/linpush/metrics-token to a file readable by the prometheus user,
+# e.g. /etc/prometheus/linpush-metrics-token (root:prometheus 0640).
+scrape_configs:
+  - job_name: linpush
+    scrape_interval: 15s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['127.0.0.1:9099']
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/linpush-metrics-token

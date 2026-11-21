@@ -1,0 +1,24 @@
+{
+  "listen": "127.0.0.1:9099",
+  "unix_socket": "/run/linpush/linpush.sock",
+  "socket_group": "asterisk",
+  "database": "/var/lib/linpush/linpush.sqlite3",
+  "service_account_file": "/etc/linpush/firebase-service-account.json",
+  "api_token_file": "/etc/linpush/api-token",
+  "metrics_token_file": "/etc/linpush/metrics-token",
+  "firebase_project_id": "my-firebase-project-id",
+  "firebase_project_number": "750067000448",
+  "default_wait_seconds": 5,
+  "max_wait_seconds": 30,
+  "fcm_ttl_seconds": 45,
+  "ami_enabled": true,
+  "ami": {
+    "address": "127.0.0.1:5038",
+    "username": "linpush",
+    "password_file": "/etc/linpush/ami-password",
+    "sync_interval_seconds": 60,
+    "single_contact_aors": [
+      "5"
+    ]
+  }
+}

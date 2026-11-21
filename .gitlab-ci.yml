@@ -1,0 +1,29 @@
+stages:
+  - test
+  - build
+
+default:
+  image: archlinux:latest
+  before_script:
+    - pacman -Syu --noconfirm --needed go gcc pkgconf sqlite
+
+variables:
+  CGO_ENABLED: "1"
+  GOTOOLCHAIN: "local"
+
+unit-tests:
+  stage: test
+  script:
+    - go test -race ./...
+    - go vet ./...
+
+build-linux-amd64:
+  stage: build
+  script:
+    - GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o linpush ./cmd/linpush
+    - sha256sum linpush > linpush.sha256
+  artifacts:
+    expire_in: 14 days
+    paths:
+      - linpush
+      - linpush.sha256

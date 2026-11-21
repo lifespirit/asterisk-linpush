@@ -1,0 +1,30 @@
+[Unit]
+Description=Asterisk Linphone FCM push gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=linpush
+Group=linpush
+SupplementaryGroups=asterisk
+UMask=0077
+StateDirectory=linpush
+StateDirectoryMode=0700
+RuntimeDirectory=linpush
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/linpush serve --config /etc/linpush/config.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/lib/linpush /run/linpush
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

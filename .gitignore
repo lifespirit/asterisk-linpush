@@ -1,0 +1,9 @@
+/linpush
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.db
+*.log
+*.key
+*service-account*.json
+!examples/config.json
