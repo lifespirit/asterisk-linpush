@@ -390,7 +390,7 @@ func (s *Server) Wake(ctx context.Context, req WakeRequest) (out WakeResult, sta
     if *req.WaitRegisterSeconds < 0 || *req.WaitRegisterSeconds > s.MaxWait {
         return WakeResult{}, 400, errors.New("invalid wait_register_seconds")
     }
-    if req.WaitSeconds != nil && *req.WaitSeconds != 0 {
+    if req.WaitSeconds != nil {
         return WakeResult{}, 400, errors.New("wait_seconds and wait_register_seconds cannot be combined")
     }
     baseline := s.registrationBaseline([]string{req.Number})
@@ -434,7 +434,7 @@ func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeRe
         if *req.WaitRegisterSeconds < 0 || *req.WaitRegisterSeconds > s.MaxWait {
             return BatchWakeResult{}, 400, errors.New("invalid wait_register_seconds")
         }
-        if req.WaitSeconds != nil && *req.WaitSeconds != 0 {
+        if req.WaitSeconds != nil {
             return BatchWakeResult{}, 400, errors.New("wait_seconds and wait_register_seconds cannot be combined")
         }
         baseline = s.registrationBaseline(targets)

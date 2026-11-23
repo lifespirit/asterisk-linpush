@@ -63,3 +63,18 @@ func TestWakeCLIBatchUsesOneRequest(t *testing.T) {
 		t.Fatalf("sent %d CLI requests instead of one", n)
 	}
 }
+
+func TestWakeModesAreMutuallyExclusive(t *testing.T) {
+    cases := [][]string{
+        {"--number","5","--wait","0","--wait-register","15"},
+        {"--number","5","--wait","0","--wait-ready","15"},
+        {"--number","5","--wait-register","15","--wait-ready","15"},
+        {"--number","5","--push-grace-ms","300"},
+        {"--number","5","--wait-ready","0"},
+    }
+    for _, args := range cases {
+        if err := wake(args); err == nil {
+            t.Fatalf("expected wake flags to be rejected: %v",args)
+        }
+    }
+}

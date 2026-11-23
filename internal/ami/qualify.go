@@ -52,11 +52,15 @@ func (t *RegistrationTracker) OnQualifyResult(m map[string]string) {
     id := m["actionid"]
     t.mu.Lock()
     waiter,ok := t.qualifyWaiters[id]
-    if ok && waiter.Number == m["aor"] {
-        delete(t.qualifyWaiters,id)
-        // Require both a fresh correlated OPTIONS response and an actual SIP 2xx.
-        // Asterisk may otherwise classify 4xx as Reachable in legacy settings.
-        waiter.Channel <- strings.EqualFold(m["status"],"Reachable") && strings.EqualFold(m["sip2xx"],"yes")
+    if ok && waiter.Number == m["aor"] && t.qualifyContacts[waiter.Number][m["contactid"]] {
+        // For an AoR with several contacts, one failed OPTIONS must not
+        // mask another contact's eventual successful SIP 2xx reply.
+        ready := strings.EqualFold(m["status"],"Reachable") &&
+            strings.EqualFold(m["sip2xx"],"yes")
+        if ready || len(t.qualifyContacts[waiter.Number]) == 1 {
+            delete(t.qualifyWaiters,id)
+            waiter.Channel <- ready
+        }
     }
     t.mu.Unlock()
 }

@@ -1,11 +1,19 @@
-## v0.4.1 (candidate) — 2026-11-23
+## v0.4.2 — 2026-11-23
+
+- Document the three wake strategies explicitly: fixed FCM delay (`--wait`), FCM plus fresh REGISTER (`--wait-register`), and correlated OPTIONS then FCM/REGISTER (`--wait-ready`).
+- Publish a full English `README.md` with a link to the Russian `README.ru.md`, including a patched-Asterisk live test checklist and installation notes.
+- Reject mixed mode flags consistently, including `--wait 0`, and reject `--push-grace-ms` outside the OPTIONS mode.
+- Verify that the AMI OPTIONS event's `ContactID` belongs to the intended Linphone FCM contact; a failed response from one contact cannot mask a success from another contact under the same AoR.
+- Extend regression coverage for the three-mode CLI and correlated OPTIONS results.
+
+## v0.4.1 — 2026-11-23
 
 - Add optional correlated OPTIONS qualify result event patch for Asterisk 24; only a matching AMI ActionID can mark a fresh OPTIONS as successful.
 - Add `linpush wake --wait-ready 15 --push-grace-ms 300` as an opt-in mode with short OPTIONS grace before FCM and a shared deadline for new REGISTER or verified OPTIONS.
 - Keep existing `--wait` and `--wait-register` behavior unchanged, with a safe FCM/REGISTER fallback when the PBX is not patched.
 - Add tests for matching ActionID, unrelated events, fast OPTIONS, REGISTER and stock-Asterisk fallback.
 
-## v0.4.0 — 2026-11-23 (candidate)
+## v0.4.0 — 2026-11-23
 
 - Add optional AMI-driven `--wait-register` for a shared multi-extension REGISTER deadline and retained legacy `--wait`.
 - Detect refreshed FCM SIP contacts via `ContactStatus: Updated`, contact appearance and expiry refresh; ignore OPTIONS status changes.
