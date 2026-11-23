@@ -16,7 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"example.org/asterisk-linphone-push/internal/metrics"
+	"example.org/asterisk-linphone-push/internal/ami"
+    "example.org/asterisk-linphone-push/internal/metrics"
 	"example.org/asterisk-linphone-push/internal/push"
 	"example.org/asterisk-linphone-push/internal/store"
 )
@@ -43,11 +44,13 @@ type Server struct {
 	MaxWait       int
 	TTL           int
 	SyncStatus    func() any
+    Registration *ami.RegistrationTracker
 }
 type WakeRequest struct {
 	Number      string   `json:"number,omitempty"`
 	Numbers     []string `json:"numbers,omitempty"`
 	WaitSeconds *int     `json:"wait_seconds,omitempty"`
+    WaitRegisterSeconds *int `json:"wait_register_seconds,omitempty"`
 	CallID      string   `json:"call_id,omitempty"`
 	FromURI     string   `json:"from_uri,omitempty"`
 	DisplayName string   `json:"display_name,omitempty"`
@@ -59,6 +62,7 @@ type WakeResult struct {
 	Failed      int    `json:"failed"`
 	Invalidated int    `json:"invalidated"`
 	WaitSeconds int    `json:"wait_seconds"`
+    Registration string `json:"registration,omitempty"`
 }
 
 type BatchWakeResult struct {
@@ -69,6 +73,7 @@ type BatchWakeResult struct {
 	Failed      int          `json:"failed"`
 	Invalidated int          `json:"invalidated"`
 	WaitSeconds int          `json:"wait_seconds"`
+    Registration string `json:"registration,omitempty"`
 }
 
 func (s *Server) slot() chan struct{} {
@@ -235,7 +240,8 @@ func (s *Server) InternalHandler() http.Handler {
 		}
 		jsonOut(w, 200, result)
 	})
-	return mux
+	mux.HandleFunc("/control/", s.handleControl)
+    return mux
 }
 func (s *Server) handleExtensions(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/v1/extensions" {
@@ -377,7 +383,24 @@ func (s *Server) Wake(ctx context.Context, req WakeRequest) (out WakeResult, sta
 		}
 		s.observe("single", label, start, wait, 1)
 	}()
-	return s.wakeOne(ctx, req, nil)
+	if req.WaitRegisterSeconds == nil { return s.wakeOne(ctx, req, nil) }
+    if *req.WaitRegisterSeconds < 0 || *req.WaitRegisterSeconds > s.MaxWait {
+        return WakeResult{}, 400, errors.New("invalid wait_register_seconds")
+    }
+    if req.WaitSeconds != nil && *req.WaitSeconds != 0 {
+        return WakeResult{}, 400, errors.New("wait_seconds and wait_register_seconds cannot be combined")
+    }
+    baseline := s.registrationBaseline([]string{req.Number})
+    zero := 0
+    req.WaitSeconds = &zero
+    out, status, err = s.wakeOne(ctx, req, nil)
+    if err != nil { return out, status, err }
+    if out.Sent > 0 {
+        ready, elapsed := s.registrationWait(ctx, baseline, []string{req.Number}, *req.WaitRegisterSeconds)
+        out.WaitSeconds = elapsed
+        if ready[req.Number] { out.Registration = "registered" } else { out.Registration = "timeout" }
+    }
+    return out, status, nil
 }
 
 // WakeMany dispatches targets concurrently, waits once after all FCM sends.
@@ -402,6 +425,16 @@ func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeRe
 		return BatchWakeResult{}, 400, parseErr
 	}
 	targetCount = len(targets)
+    var baseline map[string]uint64
+    if req.WaitRegisterSeconds != nil {
+        if *req.WaitRegisterSeconds < 0 || *req.WaitRegisterSeconds > s.MaxWait {
+            return BatchWakeResult{}, 400, errors.New("invalid wait_register_seconds")
+        }
+        if req.WaitSeconds != nil && *req.WaitSeconds != 0 {
+            return BatchWakeResult{}, 400, errors.New("wait_seconds and wait_register_seconds cannot be combined")
+        }
+        baseline = s.registrationBaseline(targets)
+    }
 	if len(req.CallID) > 150 || len(req.FromURI) > 256 || len(req.DisplayName) > 128 || strings.ContainsAny(req.CallID+req.FromURI+req.DisplayName, "\r\n\x00") {
 		return BatchWakeResult{}, 400, errors.New("invalid push metadata")
 	}
@@ -409,6 +442,7 @@ func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeRe
 	if req.WaitSeconds != nil {
 		wait = *req.WaitSeconds
 	}
+    if req.WaitRegisterSeconds != nil { wait = 0 }
 	if wait < 0 || wait > s.MaxWait {
 		return BatchWakeResult{}, 400, fmt.Errorf("wait_seconds must be 0..%d", s.MaxWait)
 	}
@@ -425,6 +459,7 @@ func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeRe
 			one := req
 			one.Number = number
 			one.Numbers = nil
+            one.WaitRegisterSeconds = nil
 			one.WaitSeconds = &zero
 			res, code, e := s.wakeOne(ctx, one, &dedup)
 			if e != nil {
@@ -469,7 +504,24 @@ func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeRe
 	case deduplicated > 0:
 		out.Status = "deduplicated"
 	}
-	if out.Sent > 0 && wait > 0 {
+	if out.Sent > 0 && req.WaitRegisterSeconds != nil {
+        waiting := make([]string, 0, len(targets))
+        for _, res := range out.Results { if res.Sent > 0 { waiting = append(waiting, res.Number) } }
+        ready, elapsed := s.registrationWait(ctx, baseline, waiting, *req.WaitRegisterSeconds)
+        out.WaitSeconds = elapsed
+        all := true
+        for i := range out.Results {
+            if out.Results[i].Sent > 0 {
+                if ready[out.Results[i].Number] {
+                    out.Results[i].Registration = "registered"
+                } else {
+                    out.Results[i].Registration = "timeout"
+                    all = false
+                }
+            }
+        }
+        if all { out.Registration = "registered" } else { out.Registration = "timeout" }
+    } else if out.Sent > 0 && wait > 0 {
 		select {
 		case <-ctx.Done():
 			return BatchWakeResult{}, 499, ctx.Err()

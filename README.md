@@ -427,3 +427,55 @@ histogram_quantile(0.95, sum by (le) (rate(linpush_wake_duration_seconds_bucket[
 ```
 
 Metrics cover the **Go daemon** only; they do not assert that an Android handset received FCM, performed SIP REGISTER, or answered the call. For end-to-end observability, add Asterisk registration/call metrics separately.
+
+## v0.4.0 — registration-aware waiting and local IVR
+
+The old `--wait 5` mode is unchanged. New opt-in AMI-assisted mode:
+
+```asterisk
+[linphone-ring-group]
+exten => 500,1,NoOp(Wake 5, 10 and 11)
+ same => n,Set(PUSH_RESULT=${SHELL(/usr/local/bin/linpush wake --numbers 5:10:11 --wait-register 15)})
+ same => n,NoOp(${PUSH_RESULT})
+ same => n,Dial(${PJSIP_DIAL_CONTACTS(5)}&${PJSIP_DIAL_CONTACTS(10)}&${PJSIP_DIAL_CONTACTS(11)},30)
+ same => n,Hangup()
+```
+
+**Important:** the SIP dial destinations are evaluated AFTER linpush finishes. For the new mode, `ami_enabled=true` and `send_contact_status_on_update_registration=yes` in Asterisk's existing `[global]` PJSIP section are strongly recommended. Asterisk emits `ContactStatus: Updated` on REGISTER refresh, and the daemon also compares successive complete `PJSIPShowContacts` snapshots (new FCM contacts and changed `ExpirationTime`). Ordinary SIP OPTIONS events such as Reachable never finish the wait. During a wait it requests coalesced AMI snapshots once per second as a fallback. Baselines are captured before dispatching FCM.
+
+The **one shared deadline** covers all enabled extensions for which FCM actually accepted a message. Disabled extensions and extensions with no tokens do not block the group. A timeout releases the call; it does not prove delivery. Some Android clients may register before they are ready to display the call.
+
+The `--wait-register` option and the old positive `--wait` are mutually exclusive. Keep `--wait-register` within the configured `max_wait_seconds`. The output includes `registration=registered` or `registration=timeout` on waits; the JSON response has a matching optional `registration` field. The existing APIs and database format remain compatible.
+
+### Asterisk IVR `*98`
+
+A local CLI command changes push preference without putting the HTTP API token in the dialplan:
+
+```bash
+sudo -u asterisk linpush control status 5
+sudo -u asterisk linpush control enable 5
+sudo -u asterisk linpush control disable 5
+```
+
+These commands print only `enabled` or `disabled` to stdout and use the restricted Unix socket. Asterisk's `SHELL()` should only call them with a validated numeric extension derived from the **authenticated PJSIP endpoint**, never from user-supplied `CALLERID(num)`.
+
+The example `examples/extensions.conf` includes a `[linpush-ivr]` context for `*98` (1: status, 2: enable, 3: disable, 0: exit). **Include this context only in trusted internal endpoint dialplans.** It deliberately permits self-service only for numeric PJSIP endpoint names exactly matching their target extensions. Non-numeric or mismatched endpoints are denied. Administrative cross-extension control is not enabled by default.
+
+To create Russian announcements locally:
+
+```bash
+sudo pacman -S --needed espeak ffmpeg
+bash scripts/generate-ivr-audio.sh ./ivr-ru
+sudo install -d -m755 /var/lib/asterisk/sounds/ru/custom
+sudo install -m644 ivr-ru/linpush-*.wav /var/lib/asterisk/sounds/ru/custom/
+```
+
+Verify your actual Asterisk sound directory with `asterisk -rx 'core show settings'`; the path above is illustrative. The generated prompts are PCM WAV 8 kHz mono. eSpeak is deliberately used for a dependency-free **basic robotic voice**; replace recordings without changing the dialplan if you want human-quality speech. Enable language `ru` on the IVR channel, as the example does.
+
+Finally include `linpush-ivr` in the trusted internal context (not the trunk context) and reload:
+
+```bash
+asterisk -rx 'dialplan reload'
+```
+
+New Prometheus series: `linpush_registration_wait_total{result}`, `linpush_registration_wait_seconds`, and `linpush_ivr_changes_total{action,result}`. None contain endpoint numbers or tokens.
