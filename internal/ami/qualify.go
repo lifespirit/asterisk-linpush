@@ -54,9 +54,9 @@ func (t *RegistrationTracker) OnQualifyResult(m map[string]string) {
     waiter,ok := t.qualifyWaiters[id]
     if ok && waiter.Number == m["aor"] {
         delete(t.qualifyWaiters,id)
-        // Reachable is guaranteed to be 2xx only when qualify_2xx_only=yes
-        // is set on the AOR. Never accept the saved ContactStatus field.
-        waiter.Channel <- strings.EqualFold(m["status"],"Reachable")
+        // Require both a fresh correlated OPTIONS response and an actual SIP 2xx.
+        // Asterisk may otherwise classify 4xx as Reachable in legacy settings.
+        waiter.Channel <- strings.EqualFold(m["status"],"Reachable") && strings.EqualFold(m["sip2xx"],"yes")
     }
     t.mu.Unlock()
 }

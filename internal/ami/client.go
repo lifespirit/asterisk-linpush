@@ -232,7 +232,7 @@ func (s *Synchronizer) session(ctx context.Context) error {
 			}
 		case q := <-s.Registration.QualifyRequests():
             if err := writeAction(conn, "Action: PJSIPQualify",
-                "ActionID: "+q.ActionID, "Endpoint: "+q.Number); err != nil {
+                "ActionID: "+q.ActionID, "LinpushProbeID: "+q.ActionID, "Endpoint: "+q.Number); err != nil {
                 return errors.New("AMI PJSIPQualify write failed")
             }
         case <-s.Registration.RefreshRequests():

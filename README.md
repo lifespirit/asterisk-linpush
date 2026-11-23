@@ -489,7 +489,8 @@ cached `Reachable` value is **not proof of a fresh OPTIONS success**.
 To provide strict correlation, this repository includes an **optional Asterisk
 24** patch `patches/asterisk24-linpush-qualify.patch` against the upstream
 `24` branch. It adds `LinpushQualifyResult` AMI events for on-demand
-`PJSIPQualify` actions with lowercase alphanumeric/hyphen `ActionID`.
+`PJSIPQualify` actions carrying a lowercase alphanumeric/hyphen `LinpushProbeID`.
+The ordinary AMI `ActionID` remains unchanged for other clients.
 The identifier is copied to the actual outgoing SIP transaction and returned
 on completion, including `Reachable → Reachable`. Periodic OPTIONS
 qualifications carry no ActionID and cannot satisfy the linpush wait.
@@ -522,7 +523,7 @@ same => n,Dial(${PJSIP_DIAL_CONTACTS(5)}&${PJSIP_DIAL_CONTACTS(10)}&${PJSIP_DIAL
 ```
 
 Each endpoint with a registered FCM Contact receives a **fresh OPTIONS
-qualify** first. A positively correlated result within the 300 ms grace
+qualify** first. A positively correlated SIP 2xx result from an FCM ContactID within the 300 ms grace
 releases the call without FCM. Otherwise FCM is dispatched, and the
 single shared deadline waits for a fresh REGISTER or a fresh correlated
 successful OPTIONS result. AORs with no Contact get FCM immediately.
