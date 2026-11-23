@@ -220,14 +220,22 @@ func (s *Synchronizer) session(ctx context.Context) error {
 			if !ok {
 				return errors.New("AMI socket closed")
 			}
-			if m["event"] == "ContactStatus" {
+			if m["event"] == "LinpushQualifyResult" {
+                if s.Registration != nil { s.Registration.OnQualifyResult(m) }
+            }
+            if m["event"] == "ContactStatus" {
                 if s.Registration != nil { s.Registration.OnContactStatus(m) }
 				if !waiting {
 					pending.Reset(500 * time.Millisecond)
 					waiting = true
 				}
 			}
-		case <-s.Registration.RefreshRequests():
+		case q := <-s.Registration.QualifyRequests():
+            if err := writeAction(conn, "Action: PJSIPQualify",
+                "ActionID: "+q.ActionID, "Endpoint: "+q.Number); err != nil {
+                return errors.New("AMI PJSIPQualify write failed")
+            }
+        case <-s.Registration.RefreshRequests():
             if err := s.snapshot(ctx, conn, ch, serial); err != nil { return err }
             serial++
 		case <-next.C:
@@ -272,7 +280,11 @@ func (s *Synchronizer) snapshot(ctx context.Context, conn net.Conn, ch <-chan me
 			if !ok {
 				return errors.New("AMI connection closed during ContactList")
 			}
-			if m["actionid"] != "" && m["actionid"] != actionID {
+			if m["event"] == "LinpushQualifyResult" {
+                    if s.Registration != nil { s.Registration.OnQualifyResult(m) }
+                    continue
+                }
+                if m["actionid"] != "" && m["actionid"] != actionID {
 				continue
 			}
 			if m["response"] == "Error" {

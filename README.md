@@ -479,3 +479,58 @@ asterisk -rx 'dialplan reload'
 ```
 
 New Prometheus series: `linpush_registration_wait_total{result}`, `linpush_registration_wait_seconds`, and `linpush_ivr_changes_total{action,result}`. None contain endpoint numbers or tokens.
+
+## v0.4.x optional correlated SIP OPTIONS (Asterisk 24 patch)
+
+Stock Asterisk's `PJSIPQualify` acknowledges initiating a probe, not the SIP
+response. `ContactStatus` emits events only when the status changes, so a
+cached `Reachable` value is **not proof of a fresh OPTIONS success**.
+
+To provide strict correlation, this repository includes an **optional Asterisk
+24** patch `patches/asterisk24-linpush-qualify.patch` against the upstream
+`24` branch. It adds `LinpushQualifyResult` AMI events for on-demand
+`PJSIPQualify` actions with lowercase alphanumeric/hyphen `ActionID`.
+The identifier is copied to the actual outgoing SIP transaction and returned
+on completion, including `Reachable → Reachable`. Periodic OPTIONS
+qualifications carry no ActionID and cannot satisfy the linpush wait.
+
+Asterisk `pjsip.conf`, on **each relevant AoR** (not `[global]`):
+
+```ini
+[5]
+type=aor
+max_contacts=1
+qualify_frequency=30
+qualify_timeout=2.0
+qualify_2xx_only=yes
+```
+
+The parameters above are illustrative; **merge them into your existing AoR
+rather than introducing a duplicate**. `qualify_2xx_only=yes` matters: without
+it an Asterisk `Reachable` result might reflect a non-2xx SIP reply.
+
+Build from an Asterisk 24 source tree with the patch applied in `prepare()`
+(or `patch -p1 < ...` from the source root). Do not apply blindly to a
+different Asterisk version. Verify patch applicability and compile before
+deploying on a production PBX.
+
+When supported, new opt-in dialplan example:
+
+```asterisk
+same => n,Set(PUSH_RESULT=${SHELL(/usr/local/bin/linpush wake --numbers 5:10:11 --wait-ready 15 --push-grace-ms 300)})
+same => n,Dial(${PJSIP_DIAL_CONTACTS(5)}&${PJSIP_DIAL_CONTACTS(10)}&${PJSIP_DIAL_CONTACTS(11)},30)
+```
+
+Each endpoint with a registered FCM Contact receives a **fresh OPTIONS
+qualify** first. A positively correlated result within the 300 ms grace
+releases the call without FCM. Otherwise FCM is dispatched, and the
+single shared deadline waits for a fresh REGISTER or a fresh correlated
+successful OPTIONS result. AORs with no Contact get FCM immediately.
+Never accept previously cached `Reachable` or an OPTIONS result with another
+ActionID. Asterisk without the patch emits no correlated event and gracefully
+falls back to FCM and REGISTER/timeout rather than lying about reachability.
+
+The `--wait-ready` option is mutually exclusive with `--wait` and
+`--wait-register`. The total timeout covers the entire operation and the
+positive `--push-grace-ms` range is 0..2000 ms. This feature requires live
+testing on Asterisk 24; it is not a claim of successful deployment.

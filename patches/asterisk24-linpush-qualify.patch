@@ -1,0 +1,106 @@
+--- a/res/res_pjsip/pjsip_options.c
++++ b/res/res_pjsip/pjsip_options.c
+@@ -29,1 +29,2 @@
+-#include "asterisk/astobj2.h"
++#include "asterisk/astobj2.h"
++#include "asterisk/manager.h"
+@@ -543,1 +544,2 @@
+-struct sip_options_contact_callback_data {
++struct sip_options_contact_callback_data {
++	char *linpush_action_id;
+@@ -932,1 +934,12 @@
+-ast_test_suite_event_notify("AOR_CONTACT_QUALIFY_RESULT",
++if (contact_callback_data->linpush_action_id) {
++        manager_event(EVENT_FLAG_SYSTEM, "LinpushQualifyResult",
++            "ActionID: %s\r\n"
++            "AOR: %s\r\n"
++            "ContactID: %s\r\n"
++            "Status: %s\r\n"
++            "RoundtripUsec: %" PRId64 "\r\n",
++            contact_callback_data->linpush_action_id,
++            cs_new->aor, cs_new->name,
++            ast_sip_get_contact_status_label(cs_new->status), cs_new->rtt);
++    }
++    ast_test_suite_event_notify("AOR_CONTACT_QUALIFY_RESULT",
+@@ -1076,1 +1089,2 @@
+-ao2_cleanup(contact_callback_data->contact);
++ast_free(contact_callback_data->linpush_action_id);
++	ao2_cleanup(contact_callback_data->contact);
+@@ -1251,1 +1265,5 @@
+-static int sip_options_qualify_contact(void *obj, void *arg, int flags)
++struct linpush_qualify_context {
++    struct sip_options_aor *aor_options;
++    const char *action_id;
++};
++static int sip_options_qualify_contact(void *obj, void *arg, int flags)
+@@ -1254,1 +1272,2 @@
+-struct sip_options_aor *aor_options = arg;
++const struct linpush_qualify_context *qualify = arg;
++    struct sip_options_aor *aor_options = qualify->aor_options;
+@@ -1319,4 +1338,11 @@
+-
+-
+-	/*
+-	 * Resolve the contact destination explicitly
++
++    if (!ast_strlen_zero(qualify->action_id)) {
++        contact_callback_data->linpush_action_id = ast_strdup(qualify->action_id);
++        if (!contact_callback_data->linpush_action_id) {
++            ao2_ref(contact_callback_data, -1);
++            return 0;
++        }
++    }
++
++	/*
++	 * Resolve the contact destination explicitly
+@@ -1348,3 +1374,4 @@
+-struct sip_options_aor *aor_options = obj;
+-
+-	ast_debug(3, "Qualifying all contacts
++struct sip_options_aor *aor_options = obj;
++    struct linpush_qualify_context ctx = {.aor_options = aor_options};
++
++	ast_debug(3, "Qualifying all contacts
+@@ -1353,2 +1380,2 @@
+-sip_options_qualify_contact,
+-		(struct sip_options_aor *) aor_options);
++sip_options_qualify_contact,
++        &ctx);
+@@ -1357,2 +1384,9 @@
+-return aor_options->qualify_frequency * 1000;
+-}
++return aor_options->qualify_frequency * 1000;
++}
++static int linpush_qualify_aor(void *obj)
++{
++    struct linpush_qualify_context *ctx = obj;
++    ao2_callback(ctx->aor_options->contacts, OBJ_NODATA,
++        sip_options_qualify_contact, ctx);
++    return 0;
++}
+@@ -3130,1 +3164,2 @@
+-const char *endpoint_name = astman_get_header(m, "Endpoint");
++const char *endpoint_name = astman_get_header(m, "Endpoint");
++    const char *action_id = astman_get_header(m, "ActionID");
+@@ -3135,1 +3170,7 @@
+-if (ast_strlen_zero(endpoint_name)) {
++if (!ast_strlen_zero(action_id) &&
++        (strlen(action_id) > 80 ||
++         strspn(action_id, "abcdefghijklmnopqrstuvwxyz0123456789-") != strlen(action_id))) {
++        astman_send_error(s, m, "Invalid ActionID");
++        return 0;
++    }
++    if (ast_strlen_zero(endpoint_name)) {
+@@ -3162,2 +3203,10 @@
+-ast_sip_push_task_wait_serializer(aor_options->serializer, sip_options_qualify_aor,
+-			aor_options);
++if (!ast_strlen_zero(action_id)) {
++            struct linpush_qualify_context ctx = {
++                .aor_options = aor_options, .action_id = action_id,
++            };
++            ast_sip_push_task_wait_serializer(aor_options->serializer,
++                linpush_qualify_aor, &ctx);
++        } else {
++            ast_sip_push_task_wait_serializer(aor_options->serializer,
++                sip_options_qualify_aor, aor_options);
++        }

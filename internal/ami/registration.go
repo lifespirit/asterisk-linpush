@@ -17,6 +17,8 @@ type RegistrationTracker struct {
     contacts map[string]map[string]string
     changed chan struct{}
     refresh chan struct{}
+    qualifyRequests chan QualifyRequest
+    qualifyWaiters map[string]qualifyWaiter
 }
 
 func NewRegistrationTracker() *RegistrationTracker {
@@ -25,6 +27,8 @@ func NewRegistrationTracker() *RegistrationTracker {
         contacts: make(map[string]map[string]string),
         changed: make(chan struct{}),
         refresh: make(chan struct{},1),
+        qualifyRequests: make(chan QualifyRequest, 128),
+        qualifyWaiters: make(map[string]qualifyWaiter),
     }
 }
 

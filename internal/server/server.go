@@ -51,6 +51,8 @@ type WakeRequest struct {
 	Numbers     []string `json:"numbers,omitempty"`
 	WaitSeconds *int     `json:"wait_seconds,omitempty"`
     WaitRegisterSeconds *int `json:"wait_register_seconds,omitempty"`
+    WaitReadySeconds *int `json:"wait_ready_seconds,omitempty"`
+    PushGraceMs *int `json:"push_grace_ms,omitempty"`
 	CallID      string   `json:"call_id,omitempty"`
 	FromURI     string   `json:"from_uri,omitempty"`
 	DisplayName string   `json:"display_name,omitempty"`
@@ -370,6 +372,7 @@ func (s *Server) handleExtensions(w http.ResponseWriter, r *http.Request) {
 
 // Wake preserves the v0.2.0 single-target API and semantics.
 func (s *Server) Wake(ctx context.Context, req WakeRequest) (out WakeResult, status int, err error) {
+    if req.WaitReadySeconds != nil { return s.wakeReadySingle(ctx,req) }
 	start := time.Now()
 	if s.Metrics != nil {
 		s.Metrics.Start()
@@ -406,6 +409,7 @@ func (s *Server) Wake(ctx context.Context, req WakeRequest) (out WakeResult, sta
 // WakeMany dispatches targets concurrently, waits once after all FCM sends.
 // Its shared map deduplicates the same FCM registration token across extensions.
 func (s *Server) WakeMany(ctx context.Context, req WakeRequest) (out BatchWakeResult, status int, err error) {
+    if req.WaitReadySeconds != nil { return s.wakeReadyMany(ctx,req) }
 	start := time.Now()
 	if s.Metrics != nil {
 		s.Metrics.Start()
