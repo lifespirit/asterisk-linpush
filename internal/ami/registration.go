@@ -15,16 +15,22 @@ type RegistrationTracker struct {
     connected bool
     revision map[string]uint64
     contacts map[string]map[string]string
+    qualifyContacts map[string]map[string]bool
     changed chan struct{}
     refresh chan struct{}
+    qualifyRequests chan QualifyRequest
+    qualifyWaiters map[string]qualifyWaiter
 }
 
 func NewRegistrationTracker() *RegistrationTracker {
     return &RegistrationTracker{
         revision: make(map[string]uint64),
         contacts: make(map[string]map[string]string),
+        qualifyContacts: make(map[string]map[string]bool),
         changed: make(chan struct{}),
         refresh: make(chan struct{},1),
+        qualifyRequests: make(chan QualifyRequest, 128),
+        qualifyWaiters: make(map[string]qualifyWaiter),
     }
 }
 
@@ -68,11 +74,18 @@ func (t *RegistrationTracker) OnContactStatus(m map[string]string) {
 func (t *RegistrationTracker) ApplySnapshot(contacts []map[string]string, projectNumber string) {
     if t == nil { return }
     current := make(map[string]map[string]string)
+    knownIDs := make(map[string]map[string]bool)
     for _, m := range contacts {
         c, valid := ParseContact(m, projectNumber)
         if !valid { continue }
         if current[c.Number] == nil { current[c.Number] = make(map[string]string) }
         current[c.Number][c.ID] = m["expirationtime"]
+        // Qualify completion events report Asterisk's sorcery ContactID, not
+        // linpush's hashed device ID. Only FCM ContactIDs may satisfy the wait.
+        if contactID:=m["objectname"]; strings.HasPrefix(contactID,c.Number+"@@") {
+            if knownIDs[c.Number]==nil { knownIDs[c.Number]=make(map[string]bool) }
+            knownIDs[c.Number][contactID]=true
+        }
     }
     t.mu.Lock()
     defer t.mu.Unlock()
@@ -89,6 +102,7 @@ func (t *RegistrationTracker) ApplySnapshot(contacts []map[string]string, projec
         }
     }
     t.contacts = current
+    t.qualifyContacts = knownIDs
     t.ready = true
     t.connected = true
 }

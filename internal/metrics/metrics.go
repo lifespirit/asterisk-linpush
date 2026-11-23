@@ -129,7 +129,7 @@ func (r *Registry) Write(w io.Writer) {
 	fmt.Fprintf(w, "# HELP linpush_wake_inflight Current active wake requests.\n# TYPE linpush_wake_inflight gauge\nlinpush_wake_inflight %d\n", r.active)
 	fmt.Fprint(w, "# HELP linpush_wake_requests_total Wake requests by mode and outcome.\n# TYPE linpush_wake_requests_total counter\n")
 	for _, mode := range []string{"single", "batch"} {
-		for _, status := range []string{"sent", "disabled", "no_devices", "send_failed", "deduplicated", "skipped", "error"} {
+		for _, status := range []string{"sent", "ready", "disabled", "no_devices", "send_failed", "deduplicated", "skipped", "error"} {
 			fmt.Fprintf(w, "linpush_wake_requests_total{mode=\"%s\",status=\"%s\"} %d\n", mode, status, r.wake[mode+":"+status])
 		}
 	}

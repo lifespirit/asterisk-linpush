@@ -1,3 +1,10 @@
+## v0.4.1 (candidate) — 2026-11-23
+
+- Add optional correlated OPTIONS qualify result event patch for Asterisk 24; only a matching AMI ActionID can mark a fresh OPTIONS as successful.
+- Add `linpush wake --wait-ready 15 --push-grace-ms 300` as an opt-in mode with short OPTIONS grace before FCM and a shared deadline for new REGISTER or verified OPTIONS.
+- Keep existing `--wait` and `--wait-register` behavior unchanged, with a safe FCM/REGISTER fallback when the PBX is not patched.
+- Add tests for matching ActionID, unrelated events, fast OPTIONS, REGISTER and stock-Asterisk fallback.
+
 ## v0.4.0 — 2026-11-23 (candidate)
 
 - Add optional AMI-driven `--wait-register` for a shared multi-extension REGISTER deadline and retained legacy `--wait`.

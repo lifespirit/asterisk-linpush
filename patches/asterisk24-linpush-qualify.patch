@@ -1,0 +1,150 @@
+--- a/res/res_pjsip/pjsip_options.c
++++ b/res/res_pjsip/pjsip_options.c
+@@ -28,4 +28,5 @@
+ #include "asterisk/pbx.h"
+ #include "asterisk/astobj2.h"
++#include "asterisk/manager.h"
+ #include "asterisk/cli.h"
+ #include "asterisk/time.h"
+@@ -542,4 +543,6 @@
+ /*! \brief Structure used to contain information for an OPTIONS callback */
+ struct sip_options_contact_callback_data {
++	char *linpush_action_id;
++    int linpush_sip_2xx;
+ 	/*! \brief The contact we qualified */
+ 	struct ast_sip_contact *contact;
+@@ -930,5 +933,19 @@
+ 		cs_new->name);
+ 
+-	ast_test_suite_event_notify("AOR_CONTACT_QUALIFY_RESULT",
++	if (contact_callback_data->linpush_action_id) {
++        manager_event(EVENT_FLAG_SYSTEM, "LinpushQualifyResult",
++            "ActionID: %s\r\n"
++            "AOR: %s\r\n"
++            "ContactID: %s\r\n"
++            "Status: %s\r\n"
++            "SIP2xx: %s\r\n"
++            "RoundtripUsec: %" PRId64 "\r\n",
++            contact_callback_data->linpush_action_id,
++            cs_new->aor, cs_new->name,
++            ast_sip_get_contact_status_label(cs_new->status),
++            __atomic_load_n(&contact_callback_data->linpush_sip_2xx, __ATOMIC_RELAXED) ? "yes" : "no",
++            cs_new->rtt);
++    }
++    ast_test_suite_event_notify("AOR_CONTACT_QUALIFY_RESULT",
+ 		"Contact: %s\r\n"
+ 		"Status: %s\r\n"
+@@ -1045,4 +1062,10 @@
+ 		break;
+ 	case PJSIP_EVENT_RX_MSG:
++        /* Only a fresh SIP 2xx reply can satisfy a strict Linpush probe.
++         * Resolved targets may complete on different SIP worker threads. */
++        if (e->body.tsx_state.tsx->status_code >= 200
++            && e->body.tsx_state.tsx->status_code < 300) {
++            __atomic_store_n(&contact_callback_data->linpush_sip_2xx, 1, __ATOMIC_RELAXED);
++        }
+ 		if (contact_callback_data->aor_options->qualify_2xx_only &&
+ 			(e->body.tsx_state.tsx->status_code < 200 || e->body.tsx_state.tsx->status_code >= 300)) {
+@@ -1074,4 +1097,5 @@
+ 	struct sip_options_contact_callback_data *contact_callback_data = obj;
+ 
++	ast_free(contact_callback_data->linpush_action_id);
+ 	ao2_cleanup(contact_callback_data->contact);
+ 	ao2_cleanup(contact_callback_data->aor_options);
+@@ -1249,8 +1273,13 @@
+ 
+ /*! \brief Send a SIP OPTIONS request for a contact */
+-static int sip_options_qualify_contact(void *obj, void *arg, int flags)
+-{
+-	struct ast_sip_contact *contact = obj;
+-	struct sip_options_aor *aor_options = arg;
++struct linpush_qualify_context {
++    struct sip_options_aor *aor_options;
++    const char *action_id;
++};
++static int sip_options_qualify_contact(void *obj, void *arg, int flags)
++{
++	struct ast_sip_contact *contact = obj;
++	const struct linpush_qualify_context *qualify = arg;
++    struct sip_options_aor *aor_options = qualify->aor_options;
+ 	RAII_VAR(struct ast_sip_endpoint *, endpoint, NULL, ao2_cleanup);
+ 	pjsip_tx_data *tdata;
+@@ -1318,4 +1347,11 @@
+ 	}
+ 
++    if (!ast_strlen_zero(qualify->action_id)) {
++        contact_callback_data->linpush_action_id = ast_strdup(qualify->action_id);
++        if (!contact_callback_data->linpush_action_id) {
++            ao2_ref(contact_callback_data, -1);
++            return 0;
++        }
++    }
+ 
+ 	/*
+@@ -1347,4 +1383,5 @@
+ {
+ 	struct sip_options_aor *aor_options = obj;
++    struct linpush_qualify_context ctx = {.aor_options = aor_options};
+ 
+ 	ast_debug(3, "Qualifying all contacts on AOR '%s'\n", aor_options->name);
+@@ -1352,9 +1389,16 @@
+ 	/* Attempt to send an OPTIONS request to every contact on this AOR */
+ 	ao2_callback(aor_options->contacts, OBJ_NODATA, sip_options_qualify_contact,
+-		(struct sip_options_aor *) aor_options);
+-
+-	/* Always reschedule to the frequency we should go */
+-	return aor_options->qualify_frequency * 1000;
+-}
++        &ctx);
++
++	/* Always reschedule to the frequency we should go */
++	return aor_options->qualify_frequency * 1000;
++}
++static int linpush_qualify_aor(void *obj)
++{
++    struct linpush_qualify_context *ctx = obj;
++    ao2_callback(ctx->aor_options->contacts, OBJ_NODATA,
++        sip_options_qualify_contact, ctx);
++    return 0;
++}
+ 
+ /*! \brief Forward declaration of this helpful function */
+@@ -3129,9 +3173,16 @@
+ {
+ 	const char *endpoint_name = astman_get_header(m, "Endpoint");
+-	RAII_VAR(struct ast_sip_endpoint *, endpoint, NULL, ao2_cleanup);
+-	char *aors;
+-	char *aor_name;
+-
+-	if (ast_strlen_zero(endpoint_name)) {
++    const char *probe_id = astman_get_header(m, "LinpushProbeID");
++	RAII_VAR(struct ast_sip_endpoint *, endpoint, NULL, ao2_cleanup);
++	char *aors;
++	char *aor_name;
++
++	if (!ast_strlen_zero(probe_id) &&
++        (strlen(probe_id) > 80 ||
++         strspn(probe_id, "abcdefghijklmnopqrstuvwxyz0123456789-") != strlen(probe_id))) {
++        astman_send_error(s, m, "Invalid ActionID");
++        return 0;
++    }
++    if (ast_strlen_zero(endpoint_name)) {
+ 		astman_send_error(s, m, "Endpoint parameter missing.");
+ 		return 0;
+@@ -3160,6 +3211,14 @@
+ 		}
+ 
+-		ast_sip_push_task_wait_serializer(aor_options->serializer, sip_options_qualify_aor,
+-			aor_options);
++		if (!ast_strlen_zero(probe_id)) {
++            struct linpush_qualify_context ctx = {
++                .aor_options = aor_options, .action_id = probe_id,
++            };
++            ast_sip_push_task_wait_serializer(aor_options->serializer,
++                linpush_qualify_aor, &ctx);
++        } else {
++            ast_sip_push_task_wait_serializer(aor_options->serializer,
++                sip_options_qualify_aor, aor_options);
++        }
+ 		ao2_ref(aor_options, -1);
+ 	}

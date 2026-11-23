@@ -1,6 +1,6 @@
 GO ?= go
 PREFIX ?= /usr/local
-VERSION ?= 0.4.0
+VERSION ?= 0.4.1
 
 .PHONY: build test vet clean
 build:

@@ -1,0 +1,28 @@
+name: Correlated OPTIONS checks
+on:
+  push:
+    branches: ["feature/correlated-options-qualify"]
+  pull_request:
+jobs:
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y gcc libsqlite3-dev
+      - run: gofmt -w cmd internal
+      - run: CGO_ENABLED=1 go test -race ./...
+      - run: go vet ./...
+      - run: CGO_ENABLED=1 go build ./cmd/linpush
+  asterisk-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify patch against Asterisk 24
+        run: |
+          mkdir -p /tmp/asterisk/res/res_pjsip
+          curl -fsSL --retry 3 https://raw.githubusercontent.com/asterisk/asterisk/24/res/res_pjsip/pjsip_options.c -o /tmp/asterisk/res/res_pjsip/pjsip_options.c
+          cd /tmp/asterisk
+          patch --dry-run -p1 < "$GITHUB_WORKSPACE/patches/asterisk24-linpush-qualify.patch"

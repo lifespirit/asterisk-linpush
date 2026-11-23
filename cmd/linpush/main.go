@@ -281,6 +281,8 @@ func wake(args []string) error {
 	numbers := f.String("numbers", "", "colon/comma separated extensions, e.g. 5:10:11")
 	seconds := f.Int("wait", -1, "seconds after push (default server policy)")
     registerWait := f.Int("wait-register", -1, "wait for fresh SIP REGISTER, 0..max_wait_seconds")
+    waitReady := f.Int("wait-ready", -1, "fresh correlated OPTIONS or REGISTER, max total seconds")
+    pushGrace := f.Int("push-grace-ms", 300, "delay FCM for fresh OPTIONS, 0..2000 ms")
 	sock := f.String("socket", "/run/linpush/linpush.sock", "Unix socket path")
 	callID := f.String("call-id", "", "matching SIP INVITE Call-ID, if available")
 	fromURI := f.String("from-uri", "", "optional SIP From URI")
@@ -301,8 +303,15 @@ func wake(args []string) error {
 	if *seconds >= 0 {
 		ptr = seconds
 	}
-	req := server.WakeRequest{Number: *number, WaitSeconds: ptr, CallID: *callID, FromURI: *fromURI, DisplayName: *displayName}
+	if *waitReady < -1 || (*waitReady >= 0 && (*registerWait >= 0 || *seconds > 0)) {
+        return errors.New("--wait-ready cannot be combined with --wait or --wait-register")
+    }
+    if *pushGrace < 0 || *pushGrace > 2000 {
+        return errors.New("--push-grace-ms must be 0..2000")
+    }
+    req := server.WakeRequest{Number: *number, WaitSeconds: ptr, CallID: *callID, FromURI: *fromURI, DisplayName: *displayName}
     if *registerWait >= 0 { req.WaitRegisterSeconds = registerWait }
+    if *waitReady >= 0 { req.WaitReadySeconds=waitReady; req.PushGraceMs=pushGrace }
 	if *numbers != "" {
 		ns, err := parseNumberList(*numbers)
 		if err != nil {
