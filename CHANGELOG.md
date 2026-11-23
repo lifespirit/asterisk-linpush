@@ -1,3 +1,11 @@
+## v0.4.0 — 2026-11-23 (candidate)
+
+- Add optional AMI-driven `--wait-register` for a shared multi-extension REGISTER deadline and retained legacy `--wait`.
+- Detect refreshed FCM SIP contacts via `ContactStatus: Updated`, contact appearance and expiry refresh; ignore OPTIONS status changes.
+- Add coalesced 1-second refresh requests while waiting to cover missed AMI events.
+- Add restricted Unix-socket `linpush control` CLI and authenticated-endpoint-only `*98` IVR example.
+- Add local Russian eSpeak voice prompt generation, tests, and registration / IVR Prometheus counters.
+
 # Changelog
 
 ## 0.2.0 — 2026-11-21

@@ -36,6 +36,9 @@ type Registry struct {
 	active       int64
 	wake         map[string]uint64
 	fcm          map[string]uint64
+    register     map[string]uint64
+    ivr          map[string]uint64
+    registerTime hist
 	duration     hist
 	wait         hist
 	targets      hist
@@ -48,7 +51,7 @@ type Registry struct {
 }
 
 func New() *Registry {
-	return &Registry{started: time.Now(), wake: make(map[string]uint64), fcm: make(map[string]uint64), duration: newHist(durationBounds), wait: newHist(durationBounds), targets: newHist(targetBounds)}
+	return &Registry{started: time.Now(), wake: make(map[string]uint64), fcm: make(map[string]uint64), register: make(map[string]uint64), ivr: make(map[string]uint64), registerTime: newHist(durationBounds), duration: newHist(durationBounds), wait: newHist(durationBounds), targets: newHist(targetBounds)}
 }
 func (r *Registry) Start() {
 	if r == nil {
@@ -72,6 +75,19 @@ func (r *Registry) Wake(mode, status string, duration, wait time.Duration, targe
 	r.duration.observe(duration.Seconds(), durationBounds)
 	r.wait.observe(wait.Seconds(), durationBounds)
 	r.targets.observe(float64(targets), targetBounds)
+}
+func (r *Registry) Registration(outcome string, duration time.Duration) {
+    if r == nil { return }
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    r.register[outcome]++
+    r.registerTime.observe(duration.Seconds(), durationBounds)
+}
+func (r *Registry) IVR(action, result string) {
+    if r == nil { return }
+    r.mu.Lock()
+    r.ivr[action+":"+result]++
+    r.mu.Unlock()
 }
 func (r *Registry) FCM(outcome string) {
 	if r == nil {
@@ -121,7 +137,18 @@ func (r *Registry) Write(w io.Writer) {
 	for _, status := range []string{"accepted", "failed", "unregistered"} {
 		fmt.Fprintf(w, "linpush_fcm_messages_total{outcome=\"%s\"} %d\n", status, r.fcm[status])
 	}
-	emitHist(w, "linpush_wake_duration_seconds", "Time from wake request start to completion.", r.duration, durationBounds)
+	fmt.Fprint(w, "# HELP linpush_registration_wait_total Number of registration waits by outcome.\n# TYPE linpush_registration_wait_total counter\n")
+    for _, result := range []string{"registered", "timeout"} {
+        fmt.Fprintf(w, "linpush_registration_wait_total{result=\"%s\"} %d\n", result, r.register[result])
+    }
+    emitHist(w, "linpush_registration_wait_seconds", "Time spent waiting for a fresh REGISTER.", r.registerTime, durationBounds)
+    fmt.Fprint(w, "# HELP linpush_ivr_changes_total Local IVR control operations by action and result.\n# TYPE linpush_ivr_changes_total counter\n")
+    for _, action := range []string{"status", "enable", "disable"} {
+        for _, result := range []string{"success", "error"} {
+            fmt.Fprintf(w, "linpush_ivr_changes_total{action=\"%s\",result=\"%s\"} %d\n", action, result, r.ivr[action+":"+result])
+        }
+    }
+    emitHist(w, "linpush_wake_duration_seconds", "Time from wake request start to completion.", r.duration, durationBounds)
 	emitHist(w, "linpush_wake_wait_seconds", "Actual requested post-FCM wait duration.", r.wait, durationBounds)
 	emitHist(w, "linpush_wake_targets", "Number of distinct target extensions in a request.", r.targets, targetBounds)
 	conn := 0

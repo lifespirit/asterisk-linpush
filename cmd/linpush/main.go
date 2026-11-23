@@ -55,6 +55,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "wake":
 		err = wake(os.Args[2:])
+    case "control":
+        err = control(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -177,7 +179,8 @@ func serve(args []string) error {
 		}
 	}
 	reg := metrics.New()
-	s := &server.Server{DB: db, FCM: fcm, APIToken: token, ProjectNumber: c.FirebaseProjectNumber,
+	registration := ami.NewRegistrationTracker()
+    s := &server.Server{Registration: registration, DB: db, FCM: fcm, APIToken: token, ProjectNumber: c.FirebaseProjectNumber,
 		DefaultWait: c.DefaultWaitSeconds, MaxWait: c.MaxWaitSeconds, TTL: c.FCMTTLSeconds, Metrics: reg, MetricsToken: metricsToken}
 	var syncer *ami.Synchronizer
 	if c.AMIEnabled {
@@ -189,7 +192,7 @@ func serve(args []string) error {
 		if password == "" || strings.ContainsAny(password, "\r\n") {
 			return errors.New("invalid AMI password file")
 		}
-		syncer = &ami.Synchronizer{Config: c.AMI, Password: password, ProjectNumber: c.FirebaseProjectNumber, DB: db}
+		syncer = &ami.Synchronizer{Config: c.AMI, Password: password, ProjectNumber: c.FirebaseProjectNumber, DB: db, Registration: registration}
 		s.SyncStatus = func() any { return syncer.Status() }
 		syncer.OnStatus = func(st ami.Status, event string) {
 			reg.AMI(st.Connected, event == "success", event == "error", st.SeenContacts, st.FCMTokens)
@@ -277,6 +280,7 @@ func wake(args []string) error {
 	number := f.String("number", "", "single extension to wake")
 	numbers := f.String("numbers", "", "colon/comma separated extensions, e.g. 5:10:11")
 	seconds := f.Int("wait", -1, "seconds after push (default server policy)")
+    registerWait := f.Int("wait-register", -1, "wait for fresh SIP REGISTER, 0..max_wait_seconds")
 	sock := f.String("socket", "/run/linpush/linpush.sock", "Unix socket path")
 	callID := f.String("call-id", "", "matching SIP INVITE Call-ID, if available")
 	fromURI := f.String("from-uri", "", "optional SIP From URI")
@@ -290,11 +294,15 @@ func wake(args []string) error {
 	if *seconds < -1 {
 		return errors.New("--wait cannot be negative")
 	}
+    if *registerWait < -1 || (*registerWait >= 0 && *seconds > 0) {
+        return errors.New("--wait-register must be >=0 and cannot be combined with --wait")
+    }
 	var ptr *int
 	if *seconds >= 0 {
 		ptr = seconds
 	}
 	req := server.WakeRequest{Number: *number, WaitSeconds: ptr, CallID: *callID, FromURI: *fromURI, DisplayName: *displayName}
+    if *registerWait >= 0 { req.WaitRegisterSeconds = registerWait }
 	if *numbers != "" {
 		ns, err := parseNumberList(*numbers)
 		if err != nil {
@@ -327,7 +335,7 @@ func wake(args []string) error {
 		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 			return err
 		}
-		fmt.Printf("%s targets=%d sent=%d failed=%d invalidated=%d waited=%ds\n", res.Status, len(res.Numbers), res.Sent, res.Failed, res.Invalidated, res.WaitSeconds)
+		fmt.Printf("%s targets=%d sent=%d failed=%d invalidated=%d waited=%ds registration=%s\n", res.Status, len(res.Numbers), res.Sent, res.Failed, res.Invalidated, res.WaitSeconds, res.Registration)
 		if res.Status == "send_failed" {
 			return errors.New("FCM rejected all device sends")
 		}
@@ -337,7 +345,7 @@ func wake(args []string) error {
 	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
 		return err
 	}
-	fmt.Printf("%s sent=%d failed=%d invalidated=%d waited=%ds\n", res.Status, res.Sent, res.Failed, res.Invalidated, res.WaitSeconds)
+	fmt.Printf("%s sent=%d failed=%d invalidated=%d waited=%ds registration=%s\n", res.Status, res.Sent, res.Failed, res.Invalidated, res.WaitSeconds, res.Registration)
 	if res.Status == "send_failed" {
 		return errors.New("FCM rejected all device sends")
 	}

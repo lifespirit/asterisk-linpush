@@ -36,6 +36,7 @@ type Synchronizer struct {
 	Password      string
 	ProjectNumber string
 	DB            *store.Store
+	Registration  *RegistrationTracker
 	mu            sync.RWMutex
 	status        Status
 	OnStatus      func(Status, string)
@@ -83,6 +84,7 @@ func (s *Synchronizer) Run(ctx context.Context) {
 			return
 		}
 		s.failure(err)
+		if s.Registration != nil { s.Registration.Disconnected() }
 		// Never include URI, FCM token or raw AMI response in logs.
 		log.Printf("AMI disconnected: %v", err)
 		select {
@@ -219,11 +221,15 @@ func (s *Synchronizer) session(ctx context.Context) error {
 				return errors.New("AMI socket closed")
 			}
 			if m["event"] == "ContactStatus" {
+                if s.Registration != nil { s.Registration.OnContactStatus(m) }
 				if !waiting {
 					pending.Reset(500 * time.Millisecond)
 					waiting = true
 				}
 			}
+		case <-s.Registration.RefreshRequests():
+            if err := s.snapshot(ctx, conn, ch, serial); err != nil { return err }
+            serial++
 		case <-next.C:
 			if err := s.snapshot(ctx, conn, ch, serial); err != nil {
 				return err
@@ -252,6 +258,7 @@ func (s *Synchronizer) snapshot(ctx context.Context, conn net.Conn, ch <-chan me
 		return errors.New("AMI snapshot write failed")
 	}
 	contacts := make([]store.AutoContact, 0, 8)
+    rawContacts := make([]map[string]string, 0, 8)
 	total := 0
 	timeout := time.NewTimer(15 * time.Second)
 	defer timeout.Stop()
@@ -272,7 +279,10 @@ func (s *Synchronizer) snapshot(ctx context.Context, conn net.Conn, ch <-chan me
 				return errors.New("AMI PJSIPShowContacts denied or unavailable")
 			}
 			switch m["event"] {
+			case "ContactStatus":
+                if s.Registration != nil { s.Registration.OnContactStatus(m) }
 			case "ContactList":
+				rawContacts = append(rawContacts, m)
 				total++
 				if total > 10000 {
 					return errors.New("AMI contact list limit exceeded")
@@ -295,7 +305,8 @@ func (s *Synchronizer) snapshot(ctx context.Context, conn net.Conn, ch <-chan me
 				if err := s.DB.ApplyAMISnapshot(contacts, singles); err != nil {
 					return errors.New("SQLite AMI snapshot update failed")
 				}
-				s.success(total, len(contacts))
+				if s.Registration != nil { s.Registration.ApplySnapshot(rawContacts, s.ProjectNumber) }
+                s.success(total, len(contacts))
 				log.Printf("AMI sync OK: %d contacts, %d FCM contacts", total, len(contacts))
 				return nil
 			}
