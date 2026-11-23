@@ -93,7 +93,7 @@ func (s *Server) wakeReadyMany(ctx context.Context,req WakeRequest) (BatchWakeRe
 func (s *Server) validateReady(req WakeRequest) error {
     if req.WaitReadySeconds==nil || *req.WaitReadySeconds<=0 ||
         *req.WaitReadySeconds>s.MaxWait {return errors.New("invalid wait_ready_seconds")}
-    if req.WaitSeconds!=nil && *req.WaitSeconds!=0 {return errors.New("wait_seconds and wait_ready_seconds are mutually exclusive")}
+    if req.WaitSeconds!=nil {return errors.New("wait_seconds and wait_ready_seconds are mutually exclusive")}
     if req.WaitRegisterSeconds!=nil {return errors.New("wait_register_seconds and wait_ready_seconds are mutually exclusive")}
     if req.PushGraceMs!=nil && (*req.PushGraceMs<0 || *req.PushGraceMs>2000) {
         return errors.New("push_grace_ms must be 0..2000")

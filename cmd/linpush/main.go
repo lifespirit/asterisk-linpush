@@ -67,7 +67,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: linpush serve --config /etc/linpush/config.json | linpush wake --number 101 OR --numbers 5:10:11 --wait 5 [--socket ...]")
+	fmt.Fprintln(os.Stderr, "Usage: linpush serve --config /etc/linpush/config.json | linpush wake (--number 5 | --numbers 5:10:11) [--wait 5 | --wait-register 15 | --wait-ready 15 --push-grace-ms 300] [--socket PATH] | linpush control ...")
 }
 func loadConfig(path string) (Config, error) {
 	b, err := os.ReadFile(path)
@@ -293,18 +293,34 @@ func wake(args []string) error {
 	if (*number == "") == (*numbers == "") {
 		return errors.New("provide exactly one of --number or --numbers")
 	}
-	if *seconds < -1 {
-		return errors.New("--wait cannot be negative")
-	}
-    if *registerWait < -1 || (*registerWait >= 0 && *seconds > 0) {
-        return errors.New("--wait-register must be >=0 and cannot be combined with --wait")
+	if *seconds < -1 || *registerWait < -1 || *waitReady < -1 {
+        return errors.New("wake wait durations must be non-negative")
+    }
+    // Three independent strategies:  --wait, --wait-register, --wait-ready.
+    // Even explicit --wait 0 selects a strategy and excludes the others.
+    selected := map[string]bool{}
+    f.Visit(func(fl *flag.Flag) { selected[fl.Name] = true })
+    modes := 0
+    for _, name := range []string{"wait", "wait-register", "wait-ready"} {
+        if selected[name] { modes++ }
+    }
+    if modes > 1 {
+        return errors.New("select exactly one wake mode: --wait, --wait-register, or --wait-ready")
+    }
+    if (selected["wait"] && *seconds < 0) ||
+        (selected["wait-register"] && *registerWait < 0) ||
+        (selected["wait-ready"] && *waitReady <= 0) {
+        return errors.New("selected wake mode requires a non-negative duration (positive for --wait-ready)")
+    }
+    if selected["push-grace-ms"] && !selected["wait-ready"] {
+        return errors.New("--push-grace-ms is only valid with --wait-ready")
     }
 	var ptr *int
 	if *seconds >= 0 {
 		ptr = seconds
 	}
-	if *waitReady < -1 || (*waitReady >= 0 && (*registerWait >= 0 || *seconds > 0)) {
-        return errors.New("--wait-ready cannot be combined with --wait or --wait-register")
+	if selected["wait-ready"] && *waitReady == 0 {
+        return errors.New("--wait-ready must be at least 1 second")
     }
     if *pushGrace < 0 || *pushGrace > 2000 {
         return errors.New("--push-grace-ms must be 0..2000")

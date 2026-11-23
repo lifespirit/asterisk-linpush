@@ -35,7 +35,7 @@ func TestReadyQualifyBeforeFCM(t *testing.T) {
         q:=<-tr.QualifyRequests()
         time.Sleep(30*time.Millisecond)
         tr.OnQualifyResult(map[string]string{"event":"LinpushQualifyResult",
-            "actionid":q.ActionID,"aor":"5","status":"Reachable","sip2xx":"yes"})
+            "actionid":q.ActionID,"aor":"5","contactid":"5@@id","status":"Reachable","sip2xx":"yes"})
     }()
     result,code,err:=srv.Wake(context.Background(),WakeRequest{
         Number:"5",WaitReadySeconds:&secs,PushGraceMs:&grace,
