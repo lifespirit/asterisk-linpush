@@ -491,6 +491,8 @@ To provide strict correlation, this repository includes an **optional Asterisk
 `24` branch. It adds `LinpushQualifyResult` AMI events for on-demand
 `PJSIPQualify` actions carrying a lowercase alphanumeric/hyphen `LinpushProbeID`.
 The ordinary AMI `ActionID` remains unchanged for other clients.
+This custom probe ID is sent from the local Go daemon; do not construct it
+from user-provided SIP headers.
 The identifier is copied to the actual outgoing SIP transaction and returned
 on completion, including `Reachable → Reachable`. Periodic OPTIONS
 qualifications carry no ActionID and cannot satisfy the linpush wait.

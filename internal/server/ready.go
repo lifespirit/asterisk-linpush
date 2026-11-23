@@ -4,6 +4,7 @@ import (
     "context"
     "errors"
     "sync"
+    "strings"
     "time"
 
     "example.org/asterisk-linphone-push/internal/ami"
@@ -28,6 +29,11 @@ func (s *Server) wakeReadyMany(ctx context.Context,req WakeRequest) (BatchWakeRe
     numbers,err:=parseTargets(req)
     if err!=nil {return BatchWakeResult{},400,err}
     if err:=s.validateReady(req);err!=nil{return BatchWakeResult{},400,err}
+    // Validate all targets before any SIP probe or FCM dispatch.
+    if len(req.CallID)>150 || len(req.FromURI)>256 || len(req.DisplayName)>128 ||
+        strings.ContainsAny(req.CallID+req.FromURI+req.DisplayName,"\r\n\x00"){
+        return BatchWakeResult{},400,errors.New("invalid push metadata")
+    }
     if s.Metrics != nil {s.Metrics.Start()}
     start:=time.Now()
     out:=BatchWakeResult{Numbers:numbers,Results:make([]WakeResult,len(numbers))}
