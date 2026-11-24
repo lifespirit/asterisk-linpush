@@ -108,7 +108,7 @@ func (s *Server) readySingle(ctx context.Context,req WakeRequest,n string,dedup 
 func (s *Server) readySingleWithContext(ctx context.Context,req WakeRequest,n string,dedup *sync.Map) (WakeResult,int,error) {
     ext,exists,err:=s.DB.GetExtension(n)
     if err!=nil{return WakeResult{},500,errors.New("database query failed")}
-    if !exists || !ext.PushEnabled{return WakeResult{Number:n,Status:"disabled"},200,nil}
+    if !req.Force && (!exists || !ext.PushEnabled){return WakeResult{Number:n,Status:"disabled"},200,nil}
     devices,err:=s.DB.ListDevices(n,true)
     if err!=nil{return WakeResult{},500,errors.New("database query failed")}
     if len(devices)==0{return WakeResult{Number:n,Status:"no_devices"},200,nil}
@@ -125,7 +125,7 @@ func (s *Server) readySingleWithContext(ctx context.Context,req WakeRequest,n st
     if cancelProbe!=nil{defer func(){cancelProbe()}()}
 
     // Avoid sending FCM to a phone that already answers a fresh OPTIONS.
-    if hasContact && grace>0 {
+    if !req.Force && hasContact && grace>0 {
         delay:=time.NewTimer(time.Duration(grace)*time.Millisecond)
         defer delay.Stop()
         for {
