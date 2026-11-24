@@ -47,6 +47,7 @@ type Server struct {
     Registration *ami.RegistrationTracker
 }
 type WakeRequest struct {
+	Force bool `json:"force,omitempty"`
 	Number      string   `json:"number,omitempty"`
 	Numbers     []string `json:"numbers,omitempty"`
 	WaitSeconds *int     `json:"wait_seconds,omitempty"`
@@ -555,7 +556,7 @@ func (s *Server) wakeOne(ctx context.Context, req WakeRequest, dedup *sync.Map) 
 	if err != nil {
 		return WakeResult{}, 500, errors.New("database query failed")
 	}
-	if !exists || !ext.PushEnabled {
+	if !req.Force && (!exists || !ext.PushEnabled) {
 		out.Status = "disabled"
 		return out, 200, nil
 	}

@@ -67,7 +67,7 @@ func main() {
 	}
 }
 func usage() {
-	fmt.Fprintln(os.Stderr, "Usage: linpush serve --config /etc/linpush/config.json | linpush wake (--number 5 | --numbers 5:10:11) [--wait 5 | --wait-register 15 | --wait-ready 15 --push-grace-ms 300] [--socket PATH] | linpush control ...")
+	fmt.Fprintln(os.Stderr, "Usage: linpush serve --config /etc/linpush/config.json | linpush wake (--number 5 | --numbers 5:10:11) [--wait 5 | --wait-register 15 | --wait-ready 15 --push-grace-ms 300] [--force] [--socket PATH] | linpush control ...")
 }
 func loadConfig(path string) (Config, error) {
 	b, err := os.ReadFile(path)
@@ -277,6 +277,7 @@ func parent(path string) string {
 }
 func wake(args []string) error {
 	f := flag.NewFlagSet("wake", flag.ContinueOnError)
+	force := f.Bool("force", false, "send push regardless of extension push_enabled setting")
 	number := f.String("number", "", "single extension to wake")
 	numbers := f.String("numbers", "", "colon/comma separated extensions, e.g. 5:10:11")
 	seconds := f.Int("wait", -1, "seconds after push (default server policy)")
@@ -325,7 +326,7 @@ func wake(args []string) error {
     if *pushGrace < 0 || *pushGrace > 2000 {
         return errors.New("--push-grace-ms must be 0..2000")
     }
-    req := server.WakeRequest{Number: *number, WaitSeconds: ptr, CallID: *callID, FromURI: *fromURI, DisplayName: *displayName}
+    req := server.WakeRequest{Force: *force, Number: *number, WaitSeconds: ptr, CallID: *callID, FromURI: *fromURI, DisplayName: *displayName}
     if *registerWait >= 0 { req.WaitRegisterSeconds = registerWait }
     if *waitReady >= 0 { req.WaitReadySeconds=waitReady; req.PushGraceMs=pushGrace }
 	if *numbers != "" {

@@ -305,3 +305,7 @@ go vet ./...
 - The correlated OPTIONS patch has compile/application tests, but should be validated with a real phone and your specific Asterisk build.
 
 For additional details and prior migration notes, see [README.ru.md](README.ru.md) and [CHANGELOG.md](CHANGELOG.md).
+
+## Forced wake
+
+Use `linpush wake --numbers 5:10 --wait 10 --force` to bypass the stored `push_enabled` setting for this request only. The setting is not changed. Only active device tokens are used. With `--wait-ready`, force also skips the pre-push OPTIONS grace period. Authenticated wake API requests accept `"force": true`.

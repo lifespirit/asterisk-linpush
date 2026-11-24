@@ -42,13 +42,14 @@ func TestWakeCLIBatchUsesOneRequest(t *testing.T) {
 			t.Errorf("unexpected HTTP route: %s %s", r.Method, r.URL.Path)
 		}
 		var body struct {
+			Force bool `json:"force"`
 			Numbers     []string `json:"numbers"`
 			WaitSeconds *int     `json:"wait_seconds"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 		}
-		if len(body.Numbers) != 3 || body.Numbers[0] != "5" || body.Numbers[1] != "10" || body.Numbers[2] != "11" || body.WaitSeconds == nil || *body.WaitSeconds != 0 {
+		if !body.Force || len(body.Numbers) != 3 || body.Numbers[0] != "5" || body.Numbers[1] != "10" || body.Numbers[2] != "11" || body.WaitSeconds == nil || *body.WaitSeconds != 0 {
 			t.Errorf("unexpected payload: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -56,7 +57,7 @@ func TestWakeCLIBatchUsesOneRequest(t *testing.T) {
 	})}
 	defer server.Close()
 	go server.Serve(listener)
-	if err := wake([]string{"--numbers", "5:10:11", "--wait", "0", "--socket", path}); err != nil {
+	if err := wake([]string{"--numbers", "5:10:11", "--wait", "0", "--force", "--socket", path}); err != nil {
 		t.Fatal(err)
 	}
 	if n := requests.Load(); n != 1 {
